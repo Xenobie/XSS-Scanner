@@ -85,21 +85,21 @@ def test_dom_xss(base_url, param_name):
             except NoAlertPresentException:
                 pass
         except Exception as e:
-            print(f"[!] ❌ Error occurred while testing Selenium: {e}\n")
+            print(f"[!] Error occurred while testing Selenium: {e}\n")
 
     driver.quit()
 
 def test_stored_xss(session, injection_url, view_url, params_list):
     print(f"\n[*] Started SERVER POST test with params: {', '.join(params_list)}\n")
-    print(f"    URL инъекции (POST): {injection_url}")
-    print(f"    URL проверки (GET): {view_url}\n")
+    print(f"    Injection URL (POST): {injection_url}")
+    print(f"    Checking URL (GET): {view_url}\n")
 
     params_dict = {p: "test" for p in params_list}
 
     for param_to_attack in params_dict.keys():
         print(f"================ Testing parameter '{param_to_attack}'")
         for payload in server_payloads:
-            print(f"--- Пейлоад: {payload}")
+            print(f"--- Payload: {payload}")
 
             data_to_send = params_dict.copy()
             data_to_send[param_to_attack] = payload
