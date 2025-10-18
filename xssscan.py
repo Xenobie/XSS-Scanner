@@ -287,10 +287,3 @@ if __name__ == "__main__":
         print("\n[!] No results were found.")
 
     print("[*] Testing completed.")
-
-
-
-
-
-
-# TODO: Add site defacing
