@@ -97,7 +97,7 @@ Here are some potential improvements and features for the future:
 
     [ ] Payload Expansion: Integrate more comprehensive XSS payload lists from sources like the PortSwigger cheat sheet.
 
-    [ ] Authenticated Scanning: Add full session/cookie support to test pages that require login across all modules.
+    [x] Authenticated Scanning: Add full session/cookie support to test pages that require login across all modules.
 
     [ ] Web Crawler: Implement a basic crawler to automatically discover links and potential parameters to test on a target domain.
 

